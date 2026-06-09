@@ -3,912 +3,777 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
-<title>WeXR — AR Walkthrough | PlayCanvas</title>
+<title>WeXR — AR Property Walkthrough</title>
 <script src="https://code.playcanvas.com/playcanvas-stable.min.js"></script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#000; overflow:hidden; font-family:'Segoe UI',sans-serif; }
+  body { background:#000; overflow:hidden; font-family:'Segoe UI',sans-serif; touch-action:none; }
 
+  /* Camera feed — real world background */
+  #camFeed {
+    position:fixed; inset:0; width:100%; height:100%;
+    object-fit:cover; z-index:0;
+    display:none; transform:scaleX(-1); /* mirror fix for front cam; env cam doesn't need this */
+  }
+  /* PlayCanvas — transparent 3D overlay */
   #application-canvas {
-    position:fixed; inset:0; width:100%; height:100%; touch-action:none;
+    position:fixed; inset:0; width:100%; height:100%;
+    z-index:1; touch-action:none;
   }
 
-  /* ── Launch Overlay ─────────────────────────────────── */
-  #launchOverlay {
+  /* ── Launch ───────────────────────────────────────── */
+  #launch {
     position:fixed; inset:0; z-index:100; background:#0a0a14;
     display:flex; flex-direction:column; align-items:center;
-    justify-content:center; gap:22px;
+    justify-content:center; gap:20px; padding:20px;
   }
-  #launchOverlay .icon { font-size:56px; }
-  #launchOverlay h1   { color:#fff; font-size:26px; font-weight:700; }
-  #launchOverlay p    { color:#777; font-size:13px; max-width:300px; text-align:center; line-height:1.7; }
-  .engineBadge {
+  #launch .icon { font-size:54px; }
+  #launch h1    { color:#fff; font-size:24px; font-weight:800; }
+  #launch p     { color:#666; font-size:13px; max-width:300px; text-align:center; line-height:1.7; }
+  .badge {
     display:flex; align-items:center; gap:8px;
-    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12);
-    border-radius:20px; padding:6px 14px; color:#aaa; font-size:12px;
+    background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
+    border-radius:20px; padding:6px 14px; color:#888; font-size:12px;
   }
-  .engineBadge b { color:#00e5ff; }
-  #btnAR, #btnSim {
-    padding:14px 36px; border-radius:50px; border:none;
-    font-size:15px; font-weight:600; cursor:pointer; width:260px; transition:all .25s;
+  .badge b { color:#00e5ff; }
+  .pills { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  .pill {
+    padding:5px 12px; border-radius:20px; font-size:11px; font-weight:600;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); color:#999;
   }
-  #btnAR {
+  #btnPhone, #btnDesktop {
+    padding:14px 36px; border-radius:50px; border:none; cursor:pointer;
+    font-size:15px; font-weight:600; width:270px; transition:all .25s;
+  }
+  #btnPhone {
     background:linear-gradient(135deg,#00e5ff,#7c4dff); color:#fff;
-    box-shadow:0 0 40px rgba(0,229,255,.3);
+    box-shadow:0 0 40px rgba(0,229,255,.25);
   }
-  #btnAR:hover { transform:scale(1.04); }
-  #btnSim {
-    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.18); color:#ccc;
+  #btnPhone:hover  { transform:scale(1.03); }
+  #btnDesktop {
+    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.15); color:#bbb;
   }
-  .note { font-size:11px; color:#444; }
 
-  /* ── HUD ────────────────────────────────────────────── */
-  #hud { position:fixed; inset:0; pointer-events:none; display:none; }
+  /* ── Permission screen ───────────────────────────── */
+  #permScreen {
+    position:fixed; inset:0; z-index:200;
+    background:#0a0a14; display:none;
+    flex-direction:column; align-items:center; justify-content:center; gap:18px;
+  }
+  #permScreen .icon { font-size:48px; }
+  #permScreen h2    { color:#fff; font-size:20px; font-weight:700; }
+  #permScreen p     { color:#777; font-size:13px; max-width:280px; text-align:center; line-height:1.6; }
+  #btnAllow {
+    padding:14px 40px; border-radius:50px; border:none; cursor:pointer;
+    font-size:15px; font-weight:600;
+    background:linear-gradient(135deg,#00e5ff,#7c4dff); color:#fff; width:240px;
+  }
+  #permError { color:#ff6b6b; font-size:13px; display:none; }
 
-  /* Top bar */
+  /* ── HUD ─────────────────────────────────────────── */
+  #hud { position:fixed; inset:0; z-index:10; pointer-events:none; display:none; }
+
   #topbar {
-    width:100%; padding:16px 20px;
+    width:100%; padding:14px 18px;
     display:flex; align-items:center; justify-content:space-between;
-    background:linear-gradient(to bottom, rgba(0,0,0,.75), transparent);
+    background:linear-gradient(to bottom,rgba(0,0,0,.7),transparent);
   }
   #logo {
-    font-size:20px; font-weight:800; letter-spacing:.5px;
+    font-size:20px; font-weight:800;
     background:linear-gradient(135deg,#00e5ff,#7c4dff);
     -webkit-background-clip:text; -webkit-text-fill-color:transparent;
   }
-  #engineTag { font-size:10px; color:#555; letter-spacing:.5px; margin-top:2px; }
-  #stateLabel { font-size:12px; color:#aaa; text-transform:uppercase; letter-spacing:1px; }
+  #logoSub  { font-size:10px; color:#555; letter-spacing:.5px; }
+  #stateTag { font-size:11px; color:#aaa; text-transform:uppercase; letter-spacing:1px; }
   #closeBtn {
-    width:36px; height:36px; border-radius:50%;
-    border:1.5px solid rgba(255,255,255,.25); background:rgba(0,0,0,.5);
-    color:#fff; font-size:18px; cursor:pointer;
-    display:flex; align-items:center; justify-content:center;
-    pointer-events:all; transition:border-color .2s;
+    width:34px; height:34px; border-radius:50%; border:1.5px solid rgba(255,255,255,.2);
+    background:rgba(0,0,0,.5); color:#fff; font-size:17px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; pointer-events:all;
   }
-  #closeBtn:hover { border-color:#00e5ff; }
+
+  /* Crosshair (placement aim) */
+  #crosshair {
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:50px; height:50px; pointer-events:none; display:none;
+  }
+  #crosshair::before, #crosshair::after {
+    content:''; position:absolute; background:rgba(0,229,255,.8); border-radius:2px;
+  }
+  #crosshair::before { width:2px; height:100%; left:50%; top:0; transform:translateX(-50%); }
+  #crosshair::after  { width:100%; height:2px; top:50%; left:0; transform:translateY(-50%); }
+  #crosshairDot {
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:10px; height:10px; border-radius:50%; background:#00e5ff;
+    box-shadow:0 0 8px #00e5ff; pointer-events:none; display:none;
+  }
 
   /* Scan ring */
   #scanRing {
     position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:190px; height:190px; pointer-events:none; display:none;
+    width:180px; height:180px; pointer-events:none; display:none;
   }
-  #scanRing svg { width:100%; height:100%; animation:spin 3s linear infinite; }
+  #scanRing svg { width:100%; height:100%; animation:spin 2.8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
 
-  /* Hint pill */
+  /* Hint */
   #hint {
-    position:fixed; bottom:130px; left:50%; transform:translateX(-50%);
-    background:rgba(0,0,0,.7); backdrop-filter:blur(10px);
-    color:#fff; font-size:13px; padding:10px 22px; border-radius:30px;
-    border:1px solid rgba(255,255,255,.12); white-space:nowrap;
-    transition:opacity .4s ease;
+    position:fixed; bottom:125px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.72); backdrop-filter:blur(10px);
+    color:#fff; font-size:13px; padding:9px 20px; border-radius:30px;
+    border:1px solid rgba(255,255,255,.1); white-space:nowrap; text-align:center;
+    max-width:90vw; transition:opacity .4s;
   }
 
   /* Place button */
   #placeBtn {
-    position:fixed; bottom:50px; left:50%; transform:translateX(-50%);
-    padding:14px 42px; border-radius:50px; border:none; cursor:pointer;
-    font-size:16px; font-weight:600;
+    position:fixed; bottom:44px; left:50%; transform:translateX(-50%);
+    padding:14px 40px; border-radius:50px; border:none; cursor:pointer;
+    font-size:15px; font-weight:600;
     background:linear-gradient(135deg,#00e5ff,#7c4dff); color:#fff;
-    box-shadow:0 0 30px rgba(0,229,255,.4);
-    pointer-events:all; transition:all .3s; display:none;
+    box-shadow:0 0 30px rgba(0,229,255,.35); pointer-events:all;
+    display:none; transition:all .3s;
   }
-  #placeBtn:hover { transform:translateX(-50%) scale(1.05); }
+  #placeBtn:active { transform:translateX(-50%) scale(.96); }
 
   /* Room popup */
-  #roomPopup {
+  #roomPop {
     position:fixed; top:50%; left:50%;
-    transform:translate(-50%, -140px);
-    background:rgba(0,0,0,.78); backdrop-filter:blur(14px);
-    border:1px solid rgba(0,229,255,.35); border-radius:16px;
-    padding:14px 28px; text-align:center; pointer-events:none;
+    transform:translate(-50%,-145px);
+    background:rgba(0,0,0,.8); backdrop-filter:blur(14px);
+    border:1px solid rgba(0,229,255,.3); border-radius:14px;
+    padding:12px 24px; text-align:center; pointer-events:none;
     opacity:0; transition:opacity .3s;
   }
-  #roomPopup.show { opacity:1; }
-  #roomPopup .rname { color:#00e5ff; font-size:18px; font-weight:700; }
-  #roomPopup .rarea { color:#666; font-size:12px; margin-top:3px; }
+  #roomPop.show { opacity:1; }
+  #roomPop .rn { color:#00e5ff; font-size:17px; font-weight:700; }
+  #roomPop .ra { color:#666; font-size:12px; margin-top:2px; }
 
   /* Bottom dock */
   #dock {
     position:fixed; bottom:0; left:0; right:0;
-    padding:14px 24px 26px;
-    background:linear-gradient(to top, rgba(0,0,0,.85), transparent);
-    display:none; justify-content:space-around; align-items:flex-end;
-    pointer-events:all;
+    padding:12px 20px 24px;
+    background:linear-gradient(to top,rgba(0,0,0,.8),transparent);
+    display:none; justify-content:space-around; pointer-events:all;
   }
-  .dockBtn {
-    display:flex; flex-direction:column; align-items:center; gap:5px;
-    color:rgba(255,255,255,.4); font-size:10px; letter-spacing:.5px;
-    cursor:pointer; transition:color .2s;
+  .db {
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    color:rgba(255,255,255,.4); font-size:10px; letter-spacing:.5px; cursor:pointer;
+    transition:color .2s;
   }
-  .dockBtn:hover, .dockBtn.active { color:#00e5ff; }
-  .dockBtn svg { width:20px; height:20px; }
+  .db.on, .db:hover { color:#00e5ff; }
+  .db svg { width:20px; height:20px; }
 
-  /* Teleport room labels (HTML sprites) */
-  .roomLabel {
-    position:fixed; transform:translate(-50%, -100%) translateY(-18px);
-    background:rgba(0,0,0,.72); border-radius:20px;
-    padding:4px 12px; color:#fff; font-size:11px;
+  /* Room labels */
+  .rl {
+    position:fixed; transform:translate(-50%,-100%) translateY(-16px);
+    background:rgba(0,0,0,.75); border-radius:20px;
+    padding:3px 11px; color:#fff; font-size:11px;
     pointer-events:none; white-space:nowrap;
-    border:1px solid rgba(0,229,255,.3);
-    display:none; transition:opacity .3s;
+    border:1px solid rgba(0,229,255,.3); display:none;
   }
 
-  /* Loader */
-  #loader {
-    position:fixed; inset:0; z-index:200; background:rgba(10,10,20,.9);
-    display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+  /* Gyro prompt (iOS) */
+  #gyroPerm {
+    position:fixed; bottom:180px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.8); backdrop-filter:blur(10px);
+    border:1px solid rgba(255,183,0,.3); border-radius:14px;
+    padding:12px 20px; color:#fff; font-size:13px; text-align:center;
+    pointer-events:all; display:none; cursor:pointer; max-width:90vw;
   }
-  .spinner {
-    width:46px; height:46px; border:3px solid rgba(0,229,255,.15);
-    border-top-color:#00e5ff; border-radius:50%;
-    animation:spin .8s linear infinite;
-  }
-  #loaderMsg { color:#aaa; font-size:14px; }
+  #gyroPerm b { color:#ffb300; }
 </style>
 </head>
 <body>
 
-<!-- Launch -->
-<div id="launchOverlay">
-  <div class="icon">🏠</div>
-  <h1>WeXR AR Walkthrough</h1>
-  <div class="engineBadge">⚡ Powered by <b>PlayCanvas Engine</b></div>
-  <p>Scan your room, place the property, and teleport room-to-room in Augmented Reality.</p>
-  <button id="btnAR">Launch AR Experience</button>
-  <button id="btnSim">Preview in 3D (Desktop)</button>
-  <span class="note">AR: Android Chrome / Meta Quest Browser (HTTPS required)</span>
-</div>
-
-<!-- Loader -->
-<div id="loader">
-  <div class="spinner"></div>
-  <p id="loaderMsg">Starting PlayCanvas...</p>
-</div>
+<!-- Real camera feed (background) -->
+<video id="camFeed" autoplay playsinline muted></video>
 
 <!-- PlayCanvas canvas -->
 <canvas id="application-canvas"></canvas>
 
-<!-- HUD -->
+<!-- ── Launch ───────────────────────────────────────── -->
+<div id="launch">
+  <div class="icon">🏠</div>
+  <h1>WeXR AR Walkthrough</h1>
+  <div class="badge">⚡ Powered by <b>PlayCanvas Engine</b></div>
+  <p>Scan your room, place the 3D property, and teleport room-to-room using your phone camera.</p>
+  <div class="pills">
+    <span class="pill">📱 iOS + Android</span>
+    <span class="pill">📷 Camera AR</span>
+    <span class="pill">🚶 Teleport</span>
+  </div>
+  <button id="btnPhone">📷 Start AR on Phone</button>
+  <button id="btnDesktop">🖥 Preview on Desktop</button>
+</div>
+
+<!-- ── Permission request ───────────────────────────── -->
+<div id="permScreen">
+  <div class="icon">📷</div>
+  <h2>Camera Access Needed</h2>
+  <p>WeXR needs your camera to show the real world behind the 3D property model.</p>
+  <button id="btnAllow">Allow Camera</button>
+  <p id="permError">Camera denied. Please allow in browser settings.</p>
+</div>
+
+<!-- ── HUD ─────────────────────────────────────────── -->
 <div id="hud">
   <div id="topbar">
     <div>
       <div id="logo">WeXR</div>
-      <div id="engineTag">PlayCanvas Engine</div>
+      <div id="logoSub">PlayCanvas Engine</div>
     </div>
-    <div id="stateLabel">Scanning Room...</div>
-    <div id="closeBtn" onclick="exitExperience()">✕</div>
+    <div id="stateTag">Scanning...</div>
+    <div id="closeBtn" onclick="exit()">✕</div>
   </div>
 
-  <!-- Scan animation ring -->
   <div id="scanRing">
-    <svg viewBox="0 0 190 190" fill="none">
-      <circle cx="95" cy="95" r="84" stroke="rgba(0,229,255,.15)" stroke-width="1.5"/>
-      <circle cx="95" cy="95" r="84" stroke="url(#g1)" stroke-width="2.5"
-              stroke-dasharray="110 420" stroke-linecap="round"/>
-      <circle cx="95" cy="95" r="62" stroke="rgba(124,77,255,.15)" stroke-width="1"/>
-      <circle cx="95" cy="95" r="62" stroke="url(#g2)" stroke-width="2"
-              stroke-dasharray="70 320" stroke-linecap="round"/>
+    <svg viewBox="0 0 180 180" fill="none">
+      <circle cx="90" cy="90" r="78" stroke="rgba(0,229,255,.12)" stroke-width="1.5"/>
+      <circle cx="90" cy="90" r="78" stroke="url(#ga)" stroke-width="2.5"
+              stroke-dasharray="100 390" stroke-linecap="round"/>
+      <circle cx="90" cy="90" r="56" stroke="rgba(124,77,255,.12)" stroke-width="1"/>
+      <circle cx="90" cy="90" r="56" stroke="url(#gb)" stroke-width="2"
+              stroke-dasharray="65 295" stroke-linecap="round"/>
       <defs>
-        <linearGradient id="g1" x1="0" y1="0" x2="190" y2="190" gradientUnits="userSpaceOnUse">
+        <linearGradient id="ga" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stop-color="#00e5ff"/><stop offset="100%" stop-color="#7c4dff"/>
         </linearGradient>
-        <linearGradient id="g2" x1="190" y1="0" x2="0" y2="190" gradientUnits="userSpaceOnUse">
+        <linearGradient id="gb" x1="180" y1="0" x2="0" y2="180" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stop-color="#7c4dff"/><stop offset="100%" stop-color="#00e5ff"/>
         </linearGradient>
       </defs>
     </svg>
   </div>
 
-  <div id="hint">📡 Point camera at the floor to detect a surface</div>
-
-  <div id="roomPopup">
-    <div class="rname" id="rName">Living Room</div>
-    <div class="rarea" id="rArea">32 sq.m</div>
-  </div>
+  <div id="crosshair"></div>
+  <div id="crosshairDot"></div>
+  <div id="hint">Initializing...</div>
+  <div id="roomPop"><div class="rn" id="rn">Living Room</div><div class="ra" id="ra">32 sq.m</div></div>
 </div>
 
-<!-- Place button (outside hud to keep pointer events) -->
+<!-- Outside HUD (needs pointer events) -->
 <button id="placeBtn" onclick="placeModel()">✦ Place Property Here</button>
+<div id="gyroPerm" onclick="requestGyro()">
+  <b>📡 Enable Gyroscope</b><br>Tap to look around with your phone
+</div>
 
 <!-- Dock -->
 <div id="dock">
-  <div class="dockBtn active" id="dockAR">
+  <div class="db on">
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
     AR View
   </div>
-  <div class="dockBtn" onclick="resetPlacement()">
+  <div class="db" onclick="resetPlacement()">
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
     Reposition
   </div>
-  <div class="dockBtn" onclick="shareExperience()">
+  <div class="db" onclick="shareExp()">
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
     Share
   </div>
 </div>
 
 <script>
-// ═══════════════════════════════════════════════════════════
-//  WeXR AR WALKTHROUGH — PlayCanvas Engine
-// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+//  WeXR — Universal AR (Camera + DeviceOrientation + PlayCanvas)
+//  Works on: iOS Safari, Android Chrome, Desktop
+// ═══════════════════════════════════════════════════════════════
 
-// ── Room definitions ──────────────────────────────────────
 const ROOMS = [
-  { name:'Living Room', area:'32 sq.m', px: 0,    pz:  0,   color:[0, 0.9, 1]     },
-  { name:'Bedroom 1',   area:'18 sq.m', px: 1.5,  pz:  0,   color:[0.49,0.3, 1]   },
-  { name:'Bedroom 2',   area:'15 sq.m', px: 1.5,  pz:  1.3, color:[0.88,0.25,0.98]},
-  { name:'Kitchen',     area:'12 sq.m', px:-1.2,  pz:  0.6, color:[0.41,0.94,0.68]},
-  { name:'Bathroom',    area:'8 sq.m',  px:-1.2,  pz:  1.6, color:[1,0.7, 0]      },
-  { name:'Balcony',     area:'10 sq.m', px: 0,    pz: -1.35,color:[1,0.43,0.25]   },
+  { name:'Living Room', area:'32 sq.m', px: 0,    pz:  0,    col:[0,.9,1]      },
+  { name:'Bedroom 1',   area:'18 sq.m', px: 1.5,  pz:  0,    col:[.49,.3,1]    },
+  { name:'Bedroom 2',   area:'15 sq.m', px: 1.5,  pz:  1.35, col:[.88,.25,.98] },
+  { name:'Kitchen',     area:'12 sq.m', px:-1.2,  pz:   .6,  col:[.4,.94,.68]  },
+  { name:'Bathroom',    area:'8 sq.m',  px:-1.2,  pz:  1.65, col:[1,.7,0]      },
+  { name:'Balcony',     area:'10 sq.m', px: 0,    pz: -1.35, col:[1,.43,.25]   },
 ];
 
-// ── App state ─────────────────────────────────────────────
-let STATE        = 'idle';   // idle | scanning | placed | walkthrough
-let isAR         = false;
-let simMode      = false;
+const S = 0.3; // model scale (AR metric)
+const EYE_H = 1.5 * S; // camera eye height above floor
 
-// PlayCanvas references
-let app, camEntity, propertyRoot;
-let reticleEntity, reticlePulse;
-let teleportEntities   = [];
-let teleportArrows     = [];
-let labelElements      = [];
-let hitTestSrc         = null;
-let hitTestRequested   = false;
-let reticleWorldPos    = new pc.Vec3();
-let reticleHasHit      = false;
+// ── State ─────────────────────────────────────────────────────
+let STATE = 'idle';
+let isPhone = false, isDesktop = false;
+let propertyRoot = null;
+let teleportDots = [], teleportArrows = [], labels = [];
 
-// Teleport animation
-let teleporting      = false;
-let teleportProgress = 0;
-let teleportFromPos  = new pc.Vec3();
-let teleportToPos    = new pc.Vec3();
+// Camera orientation (DeviceOrientation)
+let devAlpha = 0, devBeta = 90, devGamma = 0;
+let initAlpha = null;
+let gyroActive = false;
 
-// Sim orbit
-let orbitYaw   = 0, orbitPitch = 30, orbitDist = 5;
-let orbitTarget = new pc.Vec3(0, 0.5, 0);
-let isDragging  = false, lastMX = 0, lastMY = 0;
+// Touch drag (fallback look-around)
+let touchLook = { active:false, lastX:0, lastY:0, yaw:0, pitch:0 };
 
-// ─────────────────────────────────────────────────────────
-//  INIT PlayCanvas
-// ─────────────────────────────────────────────────────────
+// Mouse orbit (desktop)
+let mouseOrbit = { active:false, lastX:0, lastY:0, yaw:25, pitch:25, dist:4.5 };
+let orbitTarget = new pc.Vec3(0, 0.3, 0);
+
+// Teleport
+let tpActive = false, tpProgress = 0;
+let tpFrom = new pc.Vec3(), tpTo = new pc.Vec3();
+let standPos = new pc.Vec3(0, 0, 1.5 * S); // where user is "standing"
+
+let elapsed = 0;
+
+// ── PlayCanvas Setup ──────────────────────────────────────────
 const canvas = document.getElementById('application-canvas');
-
-app = new pc.Application(canvas, {
-  mouse:   new pc.Mouse(canvas),
-  touch:   new pc.TouchDevice(canvas),
+const app = new pc.Application(canvas, {
+  mouse:    new pc.Mouse(canvas),
+  touch:    new pc.TouchDevice(canvas),
   keyboard: new pc.Keyboard(window),
-  graphicsDeviceOptions: { alpha: true, antialias: true, preserveDrawingBuffer: true }
+  graphicsDeviceOptions: { alpha:true, antialias:true }
 });
-
 app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
 app.setCanvasResolution(pc.RESOLUTION_AUTO);
-app.scene.ambientLight = new pc.Color(0.25, 0.25, 0.3);
+app.scene.ambientLight = new pc.Color(.3,.3,.35);
 
-// ── Camera ────────────────────────────────────────────────
-camEntity = new pc.Entity('camera');
-camEntity.addComponent('camera', {
-  clearColor: new pc.Color(0, 0, 0, 0),
-  nearClip: 0.01,
-  farClip: 150
+// Camera
+const cam = new pc.Entity('cam');
+cam.addComponent('camera', {
+  clearColor: new pc.Color(0,0,0,0),
+  nearClip: 0.01, farClip: 100
 });
-camEntity.setPosition(0, 1.6, 3.5);
-app.root.addChild(camEntity);
+cam.setPosition(0, EYE_H, 1.5*S);
+app.root.addChild(cam);
 
-// ── Lights ────────────────────────────────────────────────
-const dirLight = new pc.Entity('dirLight');
-dirLight.addComponent('light', {
-  type: 'directional',
-  color: new pc.Color(1, 0.98, 0.95),
-  intensity: 1.3,
-  castShadows: true,
-  shadowResolution: 1024,
-  shadowDistance: 20
-});
-dirLight.setEulerAngles(45, 35, 0);
-app.root.addChild(dirLight);
+// Lights
+const dl = new pc.Entity('dl');
+dl.addComponent('light', { type:'directional', color:new pc.Color(1,.98,.95), intensity:1.3, castShadows:true, shadowResolution:1024, shadowDistance:15 });
+dl.setEulerAngles(48,35,0);
+app.root.addChild(dl);
 
-const fillLight = new pc.Entity('fillLight');
-fillLight.addComponent('light', {
-  type: 'omni',
-  color: new pc.Color(0.2, 0.6, 1),
-  intensity: 0.5,
-  range: 30
-});
-fillLight.setPosition(-4, 3, -4);
-app.root.addChild(fillLight);
+const fl = new pc.Entity('fl');
+fl.addComponent('light', { type:'omni', color:new pc.Color(.2,.6,1), intensity:.45, range:25 });
+fl.setPosition(-3,2,-3);
+app.root.addChild(fl);
 
-// ─────────────────────────────────────────────────────────
-//  MATERIAL HELPERS
-// ─────────────────────────────────────────────────────────
-function makeMat(r, g, b, opts) {
+// ── Materials ─────────────────────────────────────────────────
+function mat(r,g,b,o={}) {
   const m = new pc.StandardMaterial();
-  m.diffuse     = new pc.Color(r, g, b);
-  m.roughness   = opts?.roughness   ?? 0.8;
-  m.metalness   = opts?.metalness   ?? 0.0;
-  if (opts?.emissive) {
-    m.emissive          = new pc.Color(...opts.emissive);
-    m.emissiveIntensity = opts?.emissiveIntensity ?? 1.0;
-  }
-  if (opts?.opacity !== undefined) {
-    m.opacity   = opts.opacity;
-    m.blendType = pc.BLEND_NORMAL;
-    m.depthWrite = false;
-  }
-  m.update();
-  return m;
+  m.diffuse   = new pc.Color(r,g,b);
+  m.roughness = o.rough ?? .8;
+  m.metalness = o.metal ?? 0;
+  if (o.em)  { m.emissive = new pc.Color(...o.em); m.emissiveIntensity = o.ei ?? 1; }
+  if (o.op !== undefined) { m.opacity = o.op; m.blendType = pc.BLEND_NORMAL; m.depthWrite = false; }
+  m.update(); return m;
 }
+const mFloor  = mat(.96,.94,.9,  {rough:.85});
+const mWall   = mat(1,1,1,       {rough:.65});
+const mAccent = mat(.1,.1,.18,   {rough:.4,metal:.1});
+const mGlass  = mat(.53,.81,.98, {rough:.05,metal:.1,op:.22});
+const mWood   = mat(.55,.42,.08, {rough:.65,metal:.05});
+const mSofa   = mat(.29,.34,.42, {rough:.9});
+const mBed1   = mat(.49,.3,1,    {rough:.9});
+const mBed2   = mat(.88,.25,.98, {rough:.9});
+const mCtr    = mat(.18,.22,.28, {rough:.25,metal:.6});
+const mGreen  = mat(0,.6,.4,     {rough:.7});
+const mBal    = mat(.89,.85,.8,  {rough:.92});
+const mFridge = mat(.7,.75,.8,   {rough:.2,metal:.5});
+const mCeil   = mat(1,1,1,       {rough:.9,op:.07});
 
-// ─────────────────────────────────────────────────────────
-//  RETICLE (floor placement ring)
-// ─────────────────────────────────────────────────────────
-function buildReticle() {
-  reticleEntity = new pc.Entity('reticle');
-
-  // Outer disc (flat cylinder)
-  const outer = new pc.Entity('outerDisc');
-  outer.addComponent('render', { type: 'cylinder', castShadows: false });
-  outer.render.material = makeMat(0, 0.9, 1, {
-    roughness: 0.2,
-    emissive: [0, 0.9, 1],
-    emissiveIntensity: 1.5,
-    opacity: 0.85
-  });
-  outer.setLocalScale(0.28, 0.008, 0.28);
-  reticleEntity.addChild(outer);
-
-  // Inner accent
-  const inner = new pc.Entity('innerDisc');
-  inner.addComponent('render', { type: 'cylinder', castShadows: false });
-  inner.render.material = makeMat(0.49, 0.3, 1, {
-    roughness: 0.2,
-    emissive: [0.49, 0.3, 1],
-    emissiveIntensity: 1.2,
-    opacity: 0.6
-  });
-  inner.setLocalScale(0.16, 0.008, 0.16);
-  inner.setLocalPosition(0, 0.001, 0);
-  reticleEntity.addChild(inner);
-
-  reticleEntity.enabled = false;
-  app.root.addChild(reticleEntity);
-
-  // Pulse ring (separate entity for scale animation)
-  reticlePulse = new pc.Entity('reticlePulse');
-  reticlePulse.addComponent('render', { type: 'cylinder', castShadows: false });
-  reticlePulse.render.material = makeMat(0, 0.9, 1, {
-    roughness: 0.3,
-    emissive: [0, 0.9, 1],
-    emissiveIntensity: 0.8,
-    opacity: 0.3
-  });
-  reticlePulse.setLocalScale(0.36, 0.004, 0.36);
-  reticlePulse.enabled = false;
-  app.root.addChild(reticlePulse);
-}
-buildReticle();
-
-// ─────────────────────────────────────────────────────────
-//  PROPERTY MODEL (procedural PlayCanvas entities)
-// ─────────────────────────────────────────────────────────
-const matFloor   = makeMat(0.96, 0.94, 0.90, { roughness: 0.85 });
-const matWall    = makeMat(1.00, 1.00, 1.00, { roughness: 0.65 });
-const matAccent  = makeMat(0.10, 0.10, 0.18, { roughness: 0.4, metalness: 0.1 });
-const matGlass   = makeMat(0.53, 0.81, 0.98, { roughness: 0.05, metalness: 0.1, opacity: 0.25 });
-const matWood    = makeMat(0.55, 0.42, 0.08, { roughness: 0.65, metalness: 0.05 });
-const matSofa    = makeMat(0.29, 0.34, 0.42, { roughness: 0.9 });
-const matBed     = makeMat(0.49, 0.30, 1.00, { roughness: 0.9 });
-const matCounter = makeMat(0.18, 0.22, 0.28, { roughness: 0.25, metalness: 0.6 });
-const matBed2    = makeMat(0.88, 0.25, 0.98, { roughness: 0.9 });
-const matGreen   = makeMat(0.00, 0.60, 0.40, { roughness: 0.7 });
-const matBalcony = makeMat(0.89, 0.85, 0.80, { roughness: 0.92 });
-
-function addBox(parent, mat, w, h, d, x, y, z) {
+function box(parent, m, w, h, d, x, y, z) {
   const e = new pc.Entity();
-  e.addComponent('render', { type: 'box', castShadows: true, receiveShadows: true });
-  e.render.material = mat;
-  e.setLocalScale(w, h, d);
-  e.setLocalPosition(x, y, z);
+  e.addComponent('render',{type:'box',castShadows:true,receiveShadows:true});
+  e.render.material = m;
+  e.setLocalScale(w,h,d);
+  e.setLocalPosition(x,y,z);
   parent.addChild(e);
   return e;
 }
 
-function buildPropertyModel() {
-  const root = new pc.Entity('propertyModel');
-  const S = 0.3; // AR metric scale
-
-  // ── FLOORS ──
-  addBox(root, matFloor,  10*S, .05*S,  9*S,     0,        0,    1.5*S);  // main
-  addBox(root, matFloor,   5*S, .05*S,  4*S,  -5.5*S,      0,    3.5*S);  // kitchen/bath
-  addBox(root, matBalcony, 3*S, .06*S,  3*S,     0,        0,   -4.5*S);  // balcony
-
-  // ── OUTER WALLS ──
-  addBox(root, matWall,  10*S, 2.8*S, .12*S,    0,    1.4*S,  -2.9*S); // north
-  addBox(root, matWall,  10*S, 2.8*S, .12*S,    0,    1.4*S,   6.1*S); // south
-  addBox(root, matWall, .12*S, 2.8*S,  9*S,  5.1*S,  1.4*S,   1.5*S); // east
-  addBox(root, matWall, .12*S, 2.8*S, 13*S, -8*S,    1.4*S,   2*S);   // west
-
-  // ── INNER DIVIDERS ──
-  addBox(root, matAccent, .1*S, 2.5*S, 4*S,  2*S, 1.25*S, 3.5*S);  // bedroom divider
-  addBox(root, matAccent, 5*S, 2.5*S, .1*S, -2*S, 1.25*S,   1*S);  // kitchen divider
-
-  // ── GLASS WINDOWS ──
-  addBox(root, matGlass, 3*S, .01*S, 2*S,  0,    1.6*S, -2.8*S);
-  addBox(root, matGlass, 2*S, .01*S,1.5*S, 5*S,  1.5*S,     0);
-
-  // ── CEILING (ghost) ──
-  const ceilMat = makeMat(1,1,1,{roughness:.9,opacity:.08});
-  addBox(root, ceilMat, 10*S,.06*S,9*S, 0,2.75*S,1.5*S);
-
-  // ── SOFA (living room) ──
-  addBox(root, matSofa,   3*S, .6*S, 1*S,  0, .3*S, -.5*S);
-  addBox(root, matSofa,   3*S, .9*S, .3*S, 0, .45*S,-.95*S);
-  // coffee table
-  addBox(root, matWood, 1.5*S,.1*S,.8*S,   0, .05*S, .6*S);
-  // side lamp
-  addBox(root, matAccent,.1*S,1*S,.1*S, 1.3*S,.5*S,-.5*S);
-  addBox(root, makeMat(1,.9,.2,{emissive:[1,.85,0],emissiveIntensity:2,opacity:.8}),
-         .25*S,.25*S,.25*S, 1.3*S,1.05*S,-.5*S);
-
-  // ── BEDS ──
-  addBox(root, matBed,  2*S,.5*S,2.5*S, 4.5*S,.25*S,  .5*S); // bedroom 1
-  addBox(root, matBed2, 2*S,.5*S,  2*S, 4.5*S,.25*S,   4*S); // bedroom 2
-  // pillows
-  addBox(root, makeMat(.9,.9,.9,{}), .7*S,.15*S,.5*S, 4.5*S,.57*S,-.2*S);
-  addBox(root, makeMat(.9,.9,.9,{}), .7*S,.15*S,.5*S, 4.5*S,.57*S, 3.5*S);
-
-  // ── KITCHEN ──
-  addBox(root, matCounter, 2*S,.9*S,.8*S, -5.5*S,.45*S,2*S);
-  addBox(root, makeMat(.44,.5,.56,{roughness:.15,metalness:.8}), 2*S,.05*S,.9*S, -5.5*S,.92*S,2*S);
-  // fridge
-  addBox(root, makeMat(.7,.75,.8,{roughness:.2,metalness:.5}), .7*S,1.8*S,.7*S, -5.5*S,.9*S,4.5*S);
-
-  // ── DINING TABLE ──
-  addBox(root, matWood,   2*S,.05*S, 1*S, -3*S,.75*S,4.5*S);
-  addBox(root, matWood, .1*S,.75*S,.1*S, -4*S,.37*S, 4*S);
-  addBox(root, matWood, .1*S,.75*S,.1*S, -2*S,.37*S, 4*S);
-  addBox(root, matWood, .1*S,.75*S,.1*S, -4*S,.37*S, 5*S);
-  addBox(root, matWood, .1*S,.75*S,.1*S, -2*S,.37*S, 5*S);
-
-  // ── BALCONY RAILING ──
-  addBox(root, matAccent, 3*S,.08*S,.05*S, 0, .8*S,-5.9*S);
-  addBox(root, matAccent, .05*S,.8*S,.05*S,-1.2*S,.4*S,-5.9*S);
-  addBox(root, matAccent, .05*S,.8*S,.05*S, 1.2*S,.4*S,-5.9*S);
-
-  // ── BATHROOM ──
-  addBox(root, makeMat(.85,.9,.95,{roughness:.1,metalness:.2}), 1.2*S,.5*S,.7*S, -5.5*S,.25*S,5.5*S);
-  addBox(root, makeMat(.8,.5,.0,{roughness:.8}), .4*S,.9*S,.4*S, -4.8*S,.45*S,6.5*S);
-
-  // ── PLANTS ──
-  addBox(root, matGreen, .3*S,.6*S,.3*S, -1*S,.3*S,-2.5*S);
-  addBox(root, matGreen, .4*S,.8*S,.4*S,  4.5*S,.4*S,-2.5*S);
-
+// ── Property Model ────────────────────────────────────────────
+function buildModel() {
+  const root = new pc.Entity('prop');
+  // Floors
+  box(root,mFloor,  10*S,.05*S, 9*S,   0,      0,  1.5*S);
+  box(root,mFloor,   5*S,.05*S, 4*S,-5.5*S,    0,  3.5*S);
+  box(root,mBal,     3*S,.06*S, 3*S,   0,      0, -4.5*S);
+  // Outer walls
+  box(root,mWall,  10*S,2.8*S,.12*S,   0,  1.4*S, -2.9*S);
+  box(root,mWall,  10*S,2.8*S,.12*S,   0,  1.4*S,  6.1*S);
+  box(root,mWall, .12*S,2.8*S,  9*S,5.1*S, 1.4*S,  1.5*S);
+  box(root,mWall, .12*S,2.8*S, 13*S, -8*S, 1.4*S,    2*S);
+  // Dividers
+  box(root,mAccent,.1*S,2.5*S, 4*S,  2*S,1.25*S, 3.5*S);
+  box(root,mAccent, 5*S,2.5*S,.1*S, -2*S,1.25*S,   1*S);
+  // Glass windows
+  box(root,mGlass,3*S,.01*S,2*S,  0,  1.6*S,-2.8*S);
+  box(root,mGlass,2*S,.01*S,1.5*S,5*S,1.5*S,    0);
+  // Ceiling
+  box(root,mCeil,10*S,.06*S,9*S,  0, 2.75*S,1.5*S);
+  // Sofa
+  box(root,mSofa, 3*S,.6*S, 1*S,  0,  .3*S,-.5*S);
+  box(root,mSofa, 3*S,.9*S,.3*S,  0, .45*S,-.95*S);
+  box(root,mWood,1.5*S,.1*S,.8*S, 0, .05*S,  .6*S);
+  // Lamp
+  box(root,mAccent,.1*S,1*S,.1*S,1.3*S,.5*S,-.5*S);
+  box(root,mat(1,.9,.2,{em:[1,.85,0],ei:2,op:.85}),.25*S,.25*S,.25*S,1.3*S,1.05*S,-.5*S);
+  // Beds
+  box(root,mBed1,2*S,.5*S,2.5*S,4.5*S,.25*S,.5*S);
+  box(root,mBed2,2*S,.5*S,  2*S,4.5*S,.25*S, 4*S);
+  box(root,mat(.9,.9,.9),  .7*S,.15*S,.5*S,4.5*S,.57*S,-.2*S);
+  box(root,mat(.9,.9,.9),  .7*S,.15*S,.5*S,4.5*S,.57*S,3.5*S);
+  // Kitchen
+  box(root,mCtr,   2*S,.9*S,.8*S,-5.5*S,.45*S,  2*S);
+  box(root,mat(.44,.5,.56,{rough:.15,metal:.8}),2*S,.05*S,.9*S,-5.5*S,.92*S,2*S);
+  box(root,mFridge,.7*S,1.8*S,.7*S,-5.5*S,.9*S,4.5*S);
+  // Dining
+  box(root,mWood,  2*S,.05*S, 1*S,-3*S,.75*S,4.5*S);
+  [[−4,4],[−2,4],[−4,5],[−2,5]].forEach(([a,b])=> box(root,mWood,.1*S,.75*S,.1*S,a*S,.37*S,b*S));
+  // Bathroom
+  box(root,mat(.85,.9,.95,{rough:.1,metal:.2}),1.2*S,.5*S,.7*S,-5.5*S,.25*S,5.5*S);
+  box(root,mat(.8,.5,0,{rough:.8}),.4*S,.9*S,.4*S,-4.8*S,.45*S,6.5*S);
+  // Balcony railing
+  box(root,mAccent,3*S,.08*S,.05*S,  0,.8*S,-5.9*S);
+  box(root,mAccent,.05*S,.8*S,.05*S,-1.2*S,.4*S,-5.9*S);
+  box(root,mAccent,.05*S,.8*S,.05*S, 1.2*S,.4*S,-5.9*S);
+  // Plants
+  box(root,mGreen,.3*S,.6*S,.3*S,-1*S,.3*S,-2.5*S);
+  box(root,mGreen,.4*S,.8*S,.4*S,4.5*S,.4*S,-2.5*S);
   return root;
 }
 
-// ─────────────────────────────────────────────────────────
-//  TELEPORT DOTS (PlayCanvas entities)
-// ─────────────────────────────────────────────────────────
-function buildTeleportSystem(parent) {
-  teleportEntities = [];
-  teleportArrows   = [];
-  labelElements.forEach(el => el.remove());
-  labelElements = [];
+// ── Teleport Dots ─────────────────────────────────────────────
+function buildDots(parent) {
+  teleportDots=[]; teleportArrows=[];
+  labels.forEach(l=>l.remove()); labels=[];
 
-  const S = 0.3;
-  ROOMS.forEach((room, i) => {
-    const color = new pc.Color(...room.color);
-
-    // Glow disc
-    const dot = new pc.Entity('dot_' + i);
-    dot.addComponent('render', { type: 'cylinder', castShadows: false });
-    dot.render.material = makeMat(...room.color, {
-      roughness: 0.2, metalness: 0.1,
-      emissive: room.color,
-      emissiveIntensity: 1.2
-    });
-    dot.setLocalScale(.28*S, .02*S, .28*S);
-    dot.setLocalPosition(room.px * S, .022, room.pz * S);
-    dot.userData = { room, index: i };
-    parent.addChild(dot);
-    teleportEntities.push(dot);
-
-    // Outer ring
-    const ring = new pc.Entity('ring_' + i);
-    ring.addComponent('render', { type: 'cylinder', castShadows: false });
-    ring.render.material = makeMat(...room.color, {
-      roughness: 0.3,
-      emissive: room.color,
-      emissiveIntensity: 0.6,
-      opacity: 0.4
-    });
-    ring.setLocalScale(.42*S, .008*S, .42*S);
-    ring.setLocalPosition(room.px * S, .01, room.pz * S);
+  ROOMS.forEach((r,i)=>{
+    const c = r.col;
+    // Dot
+    const dot = new pc.Entity('dot'+i);
+    dot.addComponent('render',{type:'cylinder',castShadows:false});
+    dot.render.material = mat(...c,{rough:.2,metal:.1,em:c,ei:1.3});
+    dot.setLocalScale(.28*S,.022*S,.28*S);
+    dot.setLocalPosition(r.px*S,.022,r.pz*S);
+    dot.userData = {room:r,i};
+    parent.addChild(dot); teleportDots.push(dot);
+    // Ring
+    const ring = new pc.Entity('ring'+i);
+    ring.addComponent('render',{type:'cylinder',castShadows:false});
+    ring.render.material = mat(...c,{rough:.3,em:c,ei:.55,op:.38});
+    ring.setLocalScale(.44*S,.008*S,.44*S);
+    ring.setLocalPosition(r.px*S,.008,r.pz*S);
     parent.addChild(ring);
-
-    // Floating arrow
-    const arrow = new pc.Entity('arrow_' + i);
-    arrow.addComponent('render', { type: 'cone', castShadows: false });
-    arrow.render.material = makeMat(...room.color, {
-      emissive: room.color,
-      emissiveIntensity: 1.5,
-      opacity: 0.9
-    });
-    arrow.setLocalScale(.08*S, .18*S, .08*S);
-    arrow.setLocalPosition(room.px * S, .6*S, room.pz * S);
-    arrow._baseY = .6 * S;
-    arrow._idx   = i;
-    parent.addChild(arrow);
-    teleportArrows.push(arrow);
-
+    // Arrow
+    const arrow = new pc.Entity('arr'+i);
+    arrow.addComponent('render',{type:'cone',castShadows:false});
+    arrow.render.material = mat(...c,{em:c,ei:1.6,op:.9});
+    arrow.setLocalScale(.08*S,.18*S,.08*S);
+    arrow.setLocalPosition(r.px*S,.6*S,r.pz*S);
+    arrow._by = .6*S; arrow._i = i;
+    parent.addChild(arrow); teleportArrows.push(arrow);
     // HTML label
-    const label = document.createElement('div');
-    label.className = 'roomLabel';
-    label.textContent = room.name;
-    label.style.borderColor = `rgba(${room.color.map(v=>Math.round(v*255)).join(',')}, 0.5)`;
-    document.body.appendChild(label);
-    labelElements.push({ el: label, entity: dot });
+    const el = document.createElement('div');
+    el.className='rl'; el.textContent=r.name;
+    el.style.borderColor=`rgba(${c.map(v=>Math.round(v*255)).join(',')},0.5)`;
+    document.body.appendChild(el); labels.push(el);
   });
 }
 
-// ─────────────────────────────────────────────────────────
-//  START AR  (WebXR via PlayCanvas app.xr)
-// ─────────────────────────────────────────────────────────
-window.startAR = function() {
-  isAR = true;
-  showLoader('Requesting AR session...');
+// ── Project 3D → screen ───────────────────────────────────────
+function project(worldPos) {
+  const vp = new pc.Mat4();
+  vp.mul2(cam.camera.projectionMatrix, cam.camera.viewMatrix);
+  const c = vp.transformPoint(worldPos);
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  return { x:(c.x*.5+.5)*W, y:(1-(c.y*.5+.5))*H, z:c.z };
+}
 
-  if (!app.xr.supported) {
-    alert('WebXR not supported in this browser.');
-    hideLoader(); return;
-  }
-  if (!app.xr.isAvailable(pc.XRTYPE_AR)) {
-    alert('Immersive AR not available on this device.');
-    hideLoader(); return;
-  }
+// ── Teleport ──────────────────────────────────────────────────
+function teleportTo(room, dotEntity) {
+  if (tpActive) return;
+  const wp = new pc.Vec3(); dotEntity.getWorldPosition(wp);
+  tpFrom.copy(standPos);
+  tpTo.set(wp.x, 0, wp.z);
+  tpProgress = 0; tpActive = true;
 
-  app.xr.start(camEntity.camera, pc.XRTYPE_AR, pc.XRSPACE_LOCAL_FLOOR, {
-    optionalFeatures: true,
-    callback: function(err) {
-      if (err) {
-        console.error('AR start error:', err);
-        alert('Could not start AR: ' + err.message);
-        hideLoader(); return;
-      }
-      hideLoader();
-      enterExperience();
-      STATE = 'scanning';
-      reticleEntity.enabled   = true;
-      reticlePulse.enabled    = true;
-      document.getElementById('scanRing').style.display = 'block';
+  document.getElementById('rn').textContent = room.name;
+  document.getElementById('ra').textContent = room.area + ' · Tap dot to move';
+  document.getElementById('stateTag').textContent = room.name;
+  const pop = document.getElementById('roomPop');
+  pop.classList.add('show'); setTimeout(()=>pop.classList.remove('show'),2500);
+}
 
-      // Start hit testing
-      if (app.xr.hitTest && app.xr.hitTest.supported) {
-        app.xr.hitTest.start({
-          entityTypes: [pc.XRTRACKABLE_POINT, pc.XRTRACKABLE_PLANE],
-          callback: function(err, source) {
-            if (err) { console.warn('Hit test error:', err); return; }
-            hitTestSrc = source;
-            source.on('result', function(position, rotation) {
-              if (STATE !== 'scanning') return;
-              reticleEntity.setPosition(position);
-              reticleEntity.setRotation(rotation);
-              reticlePulse.setPosition(position);
-              reticleWorldPos.copy(position);
-              reticleHasHit = true;
-              document.getElementById('hint').textContent = '✅ Surface detected — tap to place property';
-              document.getElementById('placeBtn').style.display = 'block';
-            });
-          }
-        });
-      }
-    }
+// ── Handle tap/click ──────────────────────────────────────────
+function handleTap(sx,sy,isDrag) {
+  if (isDrag) return;
+  if (STATE==='scanning') { placeModel(); return; }
+  if (STATE!=='placed'&&STATE!=='walking') return;
+  let best=null, bd=65;
+  teleportDots.forEach((dot,i)=>{
+    const wp=new pc.Vec3(); dot.getWorldPosition(wp);
+    const {x,y,z}=project(wp);
+    if (z<0||z>1) return;
+    const d=Math.hypot(x-sx,y-sy);
+    if(d<bd){bd=d;best=i;}
   });
+  if (best!==null) { STATE='walking'; teleportTo(ROOMS[best],teleportDots[best]); }
+}
 
-  app.xr.on('end', function() { exitExperience(); });
+// ── Touch look-around ─────────────────────────────────────────
+let tapStartX=0,tapStartY=0,tapMoved=false;
+canvas.addEventListener('touchstart',e=>{
+  if(e.touches.length!==1)return;
+  tapStartX=e.touches[0].clientX; tapStartY=e.touches[0].clientY; tapMoved=false;
+  if(!gyroActive) { touchLook.active=true; touchLook.lastX=tapStartX; touchLook.lastY=tapStartY; }
+},{passive:true});
+canvas.addEventListener('touchmove',e=>{
+  if(e.touches.length!==1)return;
+  const dx=e.touches[0].clientX-tapStartX, dy=e.touches[0].clientY-tapStartY;
+  if(Math.hypot(dx,dy)>8) tapMoved=true;
+  if(!gyroActive&&touchLook.active){
+    touchLook.yaw   -= (e.touches[0].clientX-touchLook.lastX)*0.3;
+    touchLook.pitch -= (e.touches[0].clientY-touchLook.lastY)*0.25;
+    touchLook.pitch  = Math.max(-60,Math.min(60,touchLook.pitch));
+    touchLook.lastX  = e.touches[0].clientX;
+    touchLook.lastY  = e.touches[0].clientY;
+  }
+},{passive:true});
+canvas.addEventListener('touchend',e=>{
+  touchLook.active=false;
+  if(!tapMoved) handleTap(tapStartX,tapStartY,false);
+},{passive:true});
+canvas.addEventListener('click',e=>{ if(isDesktop) handleTap(e.clientX,e.clientY,false); });
+
+// ── DeviceOrientation ─────────────────────────────────────────
+function onOrientation(e) {
+  if (initAlpha===null) initAlpha=e.alpha||0;
+  devAlpha = ((e.alpha||0) - initAlpha + 360) % 360;
+  devBeta  =   e.beta  ?? 90;
+  devGamma =   e.gamma ?? 0;
+  gyroActive = true;
+  document.getElementById('gyroPerm').style.display='none';
+}
+window.addEventListener('deviceorientation', onOrientation);
+
+// iOS 13+ permission
+window.requestGyro = function() {
+  if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission().then(r=>{
+      if(r==='granted') window.addEventListener('deviceorientation',onOrientation);
+      else alert('Gyroscope permission denied.');
+    }).catch(e=>console.warn(e));
+  }
 };
 
-// ─────────────────────────────────────────────────────────
-//  START SIM (Desktop 3D Preview)
-// ─────────────────────────────────────────────────────────
-window.startSim = function() {
-  isAR = false; simMode = true;
-  app.scene.sky = null;
-  app.scene.ambientLight = new pc.Color(0.35, 0.35, 0.42);
-
-  enterExperience();
-  document.getElementById('scanRing').style.display = 'none';
-  document.getElementById('hint').textContent = '🖱 Drag to orbit · Scroll to zoom · Click dot to teleport';
-
-  // Grid entity
-  const grid = new pc.Entity('grid');
-  grid.addComponent('render', { type: 'plane', castShadows: false });
-  const gridMat = makeMat(0.08, 0.08, 0.12, { roughness: 0.95 });
-  grid.render.material = gridMat;
-  grid.setLocalScale(30, 1, 30);
-  app.root.addChild(grid);
-
-  // Orbit camera
-  camEntity.setPosition(0, 2.5, 5);
-  updateOrbitCamera();
-
-  // Mouse orbit
-  app.mouse.on(pc.EVENT_MOUSEDOWN, e => {
-    if (e.button === pc.MOUSEBUTTON_LEFT) { isDragging = true; lastMX = e.x; lastMY = e.y; }
-  });
-  app.mouse.on(pc.EVENT_MOUSEUP,   () => { isDragging = false; });
-  app.mouse.on(pc.EVENT_MOUSEMOVE, e => {
-    if (!isDragging) return;
-    orbitYaw   -= (e.x - lastMX) * 0.5;
-    orbitPitch -= (e.y - lastMY) * 0.4;
-    orbitPitch  = Math.max(-5, Math.min(80, orbitPitch));
-    lastMX = e.x; lastMY = e.y;
-    updateOrbitCamera();
-  });
-  app.mouse.on(pc.EVENT_MOUSEWHEEL, e => {
-    orbitDist = Math.max(1.5, Math.min(15, orbitDist + e.wheelDelta * -0.005));
-    updateOrbitCamera();
-  });
-
-  // Place model right away
-  setTimeout(() => placeModel(true), 400);
-};
-
-function updateOrbitCamera() {
-  const yRad = orbitYaw   * Math.PI / 180;
-  const pRad = orbitPitch * Math.PI / 180;
-  const x = orbitTarget.x + orbitDist * Math.sin(yRad) * Math.cos(pRad);
-  const y = orbitTarget.y + orbitDist * Math.sin(pRad);
-  const z = orbitTarget.z + orbitDist * Math.cos(yRad) * Math.cos(pRad);
-  camEntity.setPosition(x, y, z);
-  camEntity.lookAt(orbitTarget);
-}
-
-// ─────────────────────────────────────────────────────────
-//  PLACE MODEL
-// ─────────────────────────────────────────────────────────
-window.placeModel = function(isSim) {
-  if (propertyRoot) { propertyRoot.destroy(); propertyRoot = null; }
-  teleportEntities = []; teleportArrows = [];
-
-  const pos = (isSim || !reticleHasHit)
-    ? new pc.Vec3(0, 0, 0)
-    : reticleWorldPos.clone();
-
-  showLoader('Placing property...');
-  setTimeout(() => {
-    propertyRoot = buildPropertyModel();
-    propertyRoot.setPosition(pos);
-    app.root.addChild(propertyRoot);
-    buildTeleportSystem(propertyRoot);
-    hideLoader();
-
-    STATE = 'placed';
-    reticleEntity.enabled = false;
-    reticlePulse.enabled  = false;
-    document.getElementById('scanRing').style.display  = 'none';
-    document.getElementById('placeBtn').style.display  = 'none';
-    document.getElementById('stateLabel').textContent  = 'Property Placed';
-    setHint('✨ Tap a glowing dot to teleport into that room');
-  }, 500);
-};
-
-// ─────────────────────────────────────────────────────────
-//  TOUCH / CLICK → TELEPORT
-// ─────────────────────────────────────────────────────────
-function handleTap(screenX, screenY) {
-  if (STATE !== 'placed' && STATE !== 'walkthrough') return;
-
-  // Project each teleport dot to screen, find closest within threshold
-  let best = null, bestDist = 60; // px threshold
-
-  teleportEntities.forEach((dot, i) => {
-    const worldPos = new pc.Vec3();
-    dot.getWorldPosition(worldPos);
-
-    // Manual 3D → 2D projection
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    const { x, y, z } = projectToScreen(worldPos, w, h);
-    if (z < 0 || z > 1) return; // behind camera
-
-    const dist = Math.hypot(x - screenX, y - screenY);
-    if (dist < bestDist) { bestDist = dist; best = i; }
-  });
-
-  if (best !== null) {
-    triggerTeleport(ROOMS[best], teleportEntities[best]);
-  }
-}
-
-function projectToScreen(worldPos, w, h) {
-  // Get view-projection matrix from PlayCanvas camera
-  const viewProj = new pc.Mat4();
-  viewProj.mul2(
-    camEntity.camera.projectionMatrix,
-    camEntity.camera.viewMatrix
-  );
-  const clip = viewProj.transformPoint(worldPos);
-  return {
-    x: (clip.x * 0.5 + 0.5) * w,
-    y: (1 - (clip.y * 0.5 + 0.5)) * h,
-    z: clip.z
-  };
-}
-
-function triggerTeleport(room, dotEntity) {
-  if (teleporting) return;
-  STATE = 'walkthrough';
-
-  const dotWorldPos = new pc.Vec3();
-  dotEntity.getWorldPosition(dotWorldPos);
-
-  teleportFromPos.copy(camEntity.getPosition());
-  teleportToPos.set(dotWorldPos.x, camEntity.getPosition().y, dotWorldPos.z);
-  teleportProgress = 0;
-  teleporting      = true;
-
-  // Room popup
-  document.getElementById('rName').textContent   = room.name;
-  document.getElementById('rArea').textContent   = room.area + ' · Tap dot to move';
-  document.getElementById('stateLabel').textContent = room.name;
-  const popup = document.getElementById('roomPopup');
-  popup.classList.add('show');
-  setTimeout(() => popup.classList.remove('show'), 2600);
-}
-
-// Touch events
-app.touch.on(pc.EVENT_TOUCHSTART, e => {
-  if (e.touches.length === 1) {
-    handleTap(e.touches[0].x, e.touches[0].y);
-  }
-});
-app.mouse.on(pc.EVENT_MOUSEDOWN, e => {
-  if (!isDragging) handleTap(e.x, e.y);
-});
-
-// ─────────────────────────────────────────────────────────
-//  UPDATE LOOP
-// ─────────────────────────────────────────────────────────
-let elapsed = 0;
+// ── Update Loop ───────────────────────────────────────────────
 app.on('update', function(dt) {
   elapsed += dt;
 
-  // Teleport smooth lerp
-  if (teleporting) {
-    teleportProgress = Math.min(teleportProgress + dt * 3, 1);
-    const t = easeInOut(teleportProgress);
-    const p = new pc.Vec3();
-    p.lerp(teleportFromPos, teleportToPos, t);
-    camEntity.setPosition(p);
-    if (teleportProgress >= 1) {
-      teleporting = false;
-      if (simMode) {
-        orbitTarget.copy(teleportToPos);
-        orbitTarget.y = 0.5;
-        updateOrbitCamera();
-      }
+  // ── Camera orientation ──────────────────────────────────────
+  if (isPhone) {
+    if (gyroActive) {
+      // DeviceOrientation → camera rotation
+      // beta=90 = phone upright, beta=0 = phone flat
+      const pitch = devBeta  - 90;   // -90..+90
+      const yaw   = -devAlpha;        // compass
+      const roll  = devGamma;
+      cam.setEulerAngles(pitch, yaw, roll);
+    } else {
+      // Touch drag fallback
+      cam.setEulerAngles(touchLook.pitch, touchLook.yaw, 0);
     }
+    // Camera position = stand pos + eye height
+    cam.setPosition(standPos.x, standPos.y + EYE_H, standPos.z);
   }
 
-  // Animate teleport dots (pulse scale)
-  teleportEntities.forEach((dot, i) => {
-    const s = 0.88 + 0.12 * Math.sin(elapsed * 2.5 + i * 1.3);
-    const cur = dot.getLocalScale();
-    dot.setLocalScale(cur.x, cur.y, cur.z);
-    // Update emissive intensity
-    if (dot.render && dot.render.material) {
-      dot.render.material.emissiveIntensity = 0.8 + 0.5 * Math.sin(elapsed * 3 + i);
-      dot.render.material.update();
-    }
-  });
-
-  // Animate arrows (float up/down)
-  teleportArrows.forEach((arrow, i) => {
-    const baseY = arrow._baseY || 0.18;
-    const curPos = arrow.getLocalPosition();
-    arrow.setLocalPosition(curPos.x, baseY + 0.05 * Math.sin(elapsed * 2.8 + i * 1.6), curPos.z);
-  });
-
-  // Reticle pulse scale
-  if (reticlePulse.enabled) {
-    const s = 1 + 0.1 * Math.sin(elapsed * 5);
-    reticlePulse.setLocalScale(0.36 * 0.3 * s, 0.004, 0.36 * 0.3 * s);
+  if (isDesktop) {
+    const yR = mouseOrbit.yaw   * Math.PI/180;
+    const pR = mouseOrbit.pitch * Math.PI/180;
+    const D  = mouseOrbit.dist;
+    cam.setPosition(
+      orbitTarget.x + D*Math.sin(yR)*Math.cos(pR),
+      orbitTarget.y + D*Math.sin(pR),
+      orbitTarget.z + D*Math.cos(yR)*Math.cos(pR)
+    );
+    cam.lookAt(orbitTarget);
   }
 
-  // Update HTML room labels (project to screen)
-  if (propertyRoot) {
-    const W = canvas.clientWidth, H = canvas.clientHeight;
-    labelElements.forEach(({ el, entity }) => {
-      const wPos = new pc.Vec3();
-      entity.getWorldPosition(wPos);
-      const { x, y, z } = projectToScreen(wPos, W, H);
-      if (z > 0 && z < 1) {
-        el.style.display = 'block';
-        el.style.left    = x + 'px';
-        el.style.top     = (y - 28) + 'px';
-      } else {
-        el.style.display = 'none';
-      }
+  // ── Teleport lerp ───────────────────────────────────────────
+  if (tpActive) {
+    tpProgress = Math.min(tpProgress + dt*3,1);
+    const t = tpProgress<.5?2*tpProgress*tpProgress:-1+(4-2*tpProgress)*tpProgress;
+    standPos.lerp(tpFrom,tpTo,t);
+    if (isDesktop) {
+      orbitTarget.copy(standPos); orbitTarget.y=.3;
+    }
+    if (tpProgress>=1) tpActive=false;
+  }
+
+  // ── Dot animation ───────────────────────────────────────────
+  teleportDots.forEach((d,i)=>{
+    if(d.render?.material){
+      d.render.material.emissiveIntensity = .7+.5*Math.sin(elapsed*3+i);
+      d.render.material.update();
+    }
+  });
+  teleportArrows.forEach((a,i)=>{
+    const lp = a.getLocalPosition();
+    a.setLocalPosition(lp.x, a._by+.05*Math.sin(elapsed*2.8+i*1.6), lp.z);
+  });
+
+  // ── HTML label positions ────────────────────────────────────
+  if (propertyRoot && STATE!=='scanning') {
+    const W=canvas.clientWidth, H=canvas.clientHeight;
+    labels.forEach((el,i)=>{
+      const wp=new pc.Vec3(); teleportDots[i]?.getWorldPosition(wp);
+      if(!teleportDots[i]) return;
+      const {x,y,z}=project(wp);
+      if(z>0&&z<1&&x>0&&x<W&&y>0&&y<H){
+        el.style.display='block'; el.style.left=x+'px'; el.style.top=(y-26)+'px';
+      } else el.style.display='none';
     });
   }
 });
 
-// ─────────────────────────────────────────────────────────
-//  HELPERS
-// ─────────────────────────────────────────────────────────
-function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
-
-function showLoader(msg) {
-  document.getElementById('loaderMsg').textContent = msg;
-  document.getElementById('loader').style.display  = 'flex';
-}
-function hideLoader() {
-  document.getElementById('loader').style.display = 'none';
-}
-
-function enterExperience() {
-  document.getElementById('launchOverlay').style.display = 'none';
-  document.getElementById('hud').style.display           = 'flex';
-  document.getElementById('dock').style.display          = 'flex';
-}
-
-function setHint(msg) {
-  const el = document.getElementById('hint');
-  el.style.opacity = '0';
-  setTimeout(() => { el.textContent = msg; el.style.opacity = '1'; }, 350);
-}
-
-window.exitExperience = function() {
-  labelElements.forEach(({ el }) => el.remove());
-  labelElements = [];
-  if (propertyRoot) { propertyRoot.destroy(); propertyRoot = null; }
-  teleportEntities = []; teleportArrows = [];
-  if (isAR && app.xr.active) app.xr.end();
-  document.getElementById('launchOverlay').style.display = 'flex';
-  document.getElementById('hud').style.display           = 'none';
-  document.getElementById('dock').style.display          = 'none';
-  document.getElementById('placeBtn').style.display      = 'none';
-  document.getElementById('scanRing').style.display      = 'none';
-  reticleEntity.enabled = false;
-  reticlePulse.enabled  = false;
-  STATE = 'idle'; isAR = false; simMode = false;
-  reticleHasHit = false;
-};
-
-window.resetPlacement = function() {
-  if (propertyRoot) { propertyRoot.destroy(); propertyRoot = null; }
-  teleportEntities = []; teleportArrows = [];
-  labelElements.forEach(({ el }) => { el.style.display = 'none'; });
-  STATE = 'scanning';
-  reticleHasHit = false;
-  if (!simMode) { reticleEntity.enabled = true; reticlePulse.enabled = true; }
-  document.getElementById('scanRing').style.display  = 'block';
-  document.getElementById('stateLabel').textContent  = 'Scanning Room...';
-  setHint('📡 Point camera at the floor to detect a surface');
-};
-
-window.shareExperience = function() {
-  if (navigator.share) navigator.share({ title: 'WeXR Property Tour', url: location.href });
-  else navigator.clipboard?.writeText(location.href).then(() => alert('Link copied!'));
-};
-
-// ─────────────────────────────────────────────────────────
-//  RESIZE
-// ─────────────────────────────────────────────────────────
-window.addEventListener('resize', () => {
-  app.resizeCanvas();
-  if (simMode) updateOrbitCamera();
+// ── Desktop mouse orbit ───────────────────────────────────────
+app.mouse.on(pc.EVENT_MOUSEDOWN,e=>{
+  if(isDesktop&&e.button===pc.MOUSEBUTTON_LEFT){
+    mouseOrbit.active=true; mouseOrbit.lastX=e.x; mouseOrbit.lastY=e.y;
+  }
+});
+app.mouse.on(pc.EVENT_MOUSEUP,  ()=>{ mouseOrbit.active=false; });
+app.mouse.on(pc.EVENT_MOUSEMOVE,e=>{
+  if(!mouseOrbit.active)return;
+  mouseOrbit.yaw   -= (e.x-mouseOrbit.lastX)*.5;
+  mouseOrbit.pitch -= (e.y-mouseOrbit.lastY)*.4;
+  mouseOrbit.pitch  = Math.max(-5,Math.min(75,mouseOrbit.pitch));
+  mouseOrbit.lastX=e.x; mouseOrbit.lastY=e.y;
+});
+app.mouse.on(pc.EVENT_MOUSEWHEEL,e=>{
+  mouseOrbit.dist = Math.max(1.5,Math.min(12,mouseOrbit.dist+e.wheelDelta*-.005));
 });
 
-// ─────────────────────────────────────────────────────────
-//  BUTTON BINDINGS
-// ─────────────────────────────────────────────────────────
-document.getElementById('btnAR').addEventListener('click',  startAR);
-document.getElementById('btnSim').addEventListener('click', startSim);
+// ── Camera feed ───────────────────────────────────────────────
+async function startCamera() {
+  const video = document.getElementById('camFeed');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode:{ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} },
+      audio:false
+    });
+    video.srcObject = stream;
+    video.style.transform = 'none'; // environment camera — no mirror
+    video.style.display   = 'block';
+    return true;
+  } catch(err) {
+    console.warn('Camera error:',err);
+    document.getElementById('permError').style.display='block';
+    return false;
+  }
+}
 
-// ─────────────────────────────────────────────────────────
-//  START ENGINE
-// ─────────────────────────────────────────────────────────
+// ── Place model ───────────────────────────────────────────────
+window.placeModel = function() {
+  if(propertyRoot){propertyRoot.destroy();propertyRoot=null;}
+  teleportDots=[];teleportArrows=[];
+
+  propertyRoot = buildModel();
+  propertyRoot.setPosition(0,0,0);
+  app.root.addChild(propertyRoot);
+  buildDots(propertyRoot);
+
+  STATE = 'placed';
+  standPos.set(0,0,1.5*S);
+
+  document.getElementById('scanRing').style.display  = 'none';
+  document.getElementById('crosshair').style.display = 'none';
+  document.getElementById('crosshairDot').style.display = 'none';
+  document.getElementById('placeBtn').style.display  = 'none';
+  document.getElementById('stateTag').textContent    = 'Property Placed';
+  setHint('✨ Tap a glowing dot to enter that room');
+};
+
+// ── Enter experience ──────────────────────────────────────────
+function enterExp() {
+  document.getElementById('launch').style.display    = 'none';
+  document.getElementById('permScreen').style.display= 'none';
+  document.getElementById('hud').style.display       = 'flex';
+  document.getElementById('dock').style.display      = 'flex';
+}
+
+// ── Phone flow ────────────────────────────────────────────────
+document.getElementById('btnPhone').addEventListener('click',()=>{
+  document.getElementById('launch').style.display     = 'none';
+  document.getElementById('permScreen').style.display = 'flex';
+});
+document.getElementById('btnAllow').addEventListener('click', async ()=>{
+  const ok = await startCamera();
+  if (!ok) return;
+  isPhone = true;
+  enterExp();
+  STATE = 'scanning';
+  document.getElementById('scanRing').style.display      = 'block';
+  document.getElementById('crosshair').style.display     = 'block';
+  document.getElementById('crosshairDot').style.display  = 'block';
+  document.getElementById('placeBtn').style.display      = 'block';
+  setHint('📱 Point at floor · Tap to place property');
+  // iOS gyro permission prompt
+  if (typeof DeviceOrientationEvent?.requestPermission === 'function') {
+    setTimeout(()=>{ document.getElementById('gyroPerm').style.display='block'; },1200);
+  }
+});
+
+// ── Desktop flow ──────────────────────────────────────────────
+document.getElementById('btnDesktop').addEventListener('click',()=>{
+  isDesktop = true;
+  app.scene.ambientLight = new pc.Color(.35,.35,.42);
+  // Dark grid
+  const g = new pc.Entity('grid');
+  g.addComponent('render',{type:'plane',castShadows:false});
+  g.render.material = mat(.06,.06,.1,{rough:.95});
+  g.setLocalScale(30,1,30);
+  app.root.addChild(g);
+  enterExp();
+  document.getElementById('scanRing').style.display='none';
+  setHint('🖱 Drag to orbit · Scroll to zoom · Click dot to teleport');
+  placeModel();
+});
+
+// ── Reset ─────────────────────────────────────────────────────
+window.resetPlacement = function(){
+  if(propertyRoot){propertyRoot.destroy();propertyRoot=null;}
+  teleportDots=[];teleportArrows=[];
+  labels.forEach(l=>l.style.display='none');
+  STATE='scanning';
+  if(isPhone){
+    document.getElementById('scanRing').style.display='block';
+    document.getElementById('crosshair').style.display='block';
+    document.getElementById('crosshairDot').style.display='block';
+    document.getElementById('placeBtn').style.display='block';
+  }
+  document.getElementById('stateTag').textContent='Scanning...';
+  setHint('📱 Point at floor · Tap to place property');
+};
+
+window.exit = function(){
+  labels.forEach(l=>l.remove()); labels=[];
+  if(propertyRoot){propertyRoot.destroy();propertyRoot=null;}
+  const vid=document.getElementById('camFeed');
+  if(vid.srcObject) vid.srcObject.getTracks().forEach(t=>t.stop());
+  vid.style.display='none';
+  document.getElementById('launch').style.display='flex';
+  document.getElementById('hud').style.display='none';
+  document.getElementById('dock').style.display='none';
+  document.getElementById('placeBtn').style.display='none';
+  STATE='idle'; isPhone=false; isDesktop=false; gyroActive=false; initAlpha=null;
+  teleportDots=[];teleportArrows=[];
+};
+
+window.shareExp = function(){
+  if(navigator.share) navigator.share({title:'WeXR Property Tour',url:location.href});
+  else navigator.clipboard?.writeText(location.href).then(()=>alert('Link copied!'));
+};
+
+function setHint(msg){
+  const el=document.getElementById('hint');
+  el.style.opacity='0';
+  setTimeout(()=>{el.textContent=msg;el.style.opacity='1';},350);
+}
+
+window.addEventListener('resize',()=>app.resizeCanvas());
 app.start();
 </script>
 </body>
