@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
+<title>WeXR — AR Property Walkthrough</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#000; overflow:hidden; font-family:'Segoe UI',sans-serif; }
+
+  /* AR Canvas */
+  #c { position:fixed; inset:0; width:100%; height:100%; touch-action:none; }
+
+  /* HUD overlay */
+  #hud {
+    position:fixed; inset:0; pointer-events:none;
+    display:flex; flex-direction:column; align-items:center;
+  }
+
+  /* Top bar */
+  #topbar {
+    width:100%; padding:16px 20px;
+    display:flex; align-items:center; justify-content:space-between;
+    background:linear-gradient(to bottom, rgba(0,0,0,.7) 0%, transparent 100%);
+  }
+  #logo {
+    font-size:20px; font-weight:700; letter-spacing:.5px;
+    background:linear-gradient(135deg,#00e5ff,#7c4dff); -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  #statelabel {
+    font-size:12px; color:#aaa; text-transform:uppercase; letter-spacing:1px;
+  }
+  #closeBtn {
+    width:36px; height:36px; border-radius:50%; border:1.5px solid rgba(255,255,255,.3);
+    background:rgba(0,0,0,.5); color:#fff; font-size:18px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center; pointer-events:all;
+  }
+
+  /* Scan ring animation */
+  #scanring {
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:180px; height:180px; pointer-events:none;
+  }
+  #scanring svg { width:100%; height:100%; animation:spin 3s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* Hint text */
+  #hint {
+    position:fixed; bottom:140px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,.65); backdrop-filter:blur(10px);
+    color:#fff; font-size:14px; padding:10px 20px; border-radius:30px;
+    border:1px solid rgba(255,255,255,.15); white-space:nowrap;
+    transition:opacity .4s;
+  }
+
+  /* Place button */
+  #placeBtn {
+    position:fixed; bottom:50px; left:50%; transform:translateX(-50%);
+    padding:14px 40px; border-radius:50px; border:none; cursor:pointer;
+    font-size:16px; font-weight:600; letter-spacing:.5px;
+    background:linear-gradient(135deg,#00e5ff,#7c4dff);
+    color:#fff; box-shadow:0 0 30px rgba(0,229,255,.4);
+    pointer-events:all; transition:all .3s; display:none;
+  }
+  #placeBtn:hover { transform:translateX(-50%) scale(1.05); }
+  #placeBtn.visible { display:block; }
+
+  /* Room name popup */
+  #roompopup {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-130px);
+    background:rgba(0,0,0,.75); backdrop-filter:blur(12px);
+    border:1px solid rgba(0,229,255,.4); border-radius:16px;
+    padding:12px 24px; text-align:center; pointer-events:none;
+    opacity:0; transition:opacity .3s;
+  }
+  #roompopup.show { opacity:1; }
+  #roompopup .rname { color:#00e5ff; font-size:18px; font-weight:700; }
+  #roompopup .rsub  { color:#888; font-size:12px; margin-top:2px; }
+
+  /* Bottom dock */
+  #dock {
+    position:fixed; bottom:0; left:0; right:0;
+    padding:16px 24px 28px;
+    background:linear-gradient(to top, rgba(0,0,0,.8) 0%, transparent 100%);
+    display:flex; justify-content:space-around; align-items:flex-end;
+  }
+  .dockbtn {
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    color:rgba(255,255,255,.5); font-size:10px; letter-spacing:.5px;
+    cursor:pointer; pointer-events:all; transition:color .2s;
+  }
+  .dockbtn:hover, .dockbtn.active { color:#00e5ff; }
+  .dockbtn svg { width:22px; height:22px; }
+
+  /* Teleport label sprite (injected by JS) */
+  .tel-label {
+    position:fixed; transform:translate(-50%,-100%) translateY(-24px);
+    background:rgba(0,0,0,.7); border:1px solid rgba(0,229,255,.5);
+    border-radius:20px; padding:4px 12px; color:#fff; font-size:11px;
+    pointer-events:none; white-space:nowrap; transition:opacity .3s;
+  }
+
+  /* AR launch overlay */
+  #arOverlay {
+    position:fixed; inset:0; z-index:100;
+    background:#0a0a14;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px;
+  }
+  #arOverlay .big { font-size:52px; }
+  #arOverlay h1 { color:#fff; font-size:26px; font-weight:700; }
+  #arOverlay p  { color:#888; font-size:14px; max-width:300px; text-align:center; line-height:1.6; }
+  #arOverlay .pills { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  .pill {
+    padding:6px 14px; border-radius:20px; font-size:12px; font-weight:600;
+    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.15); color:#aaa;
+  }
+  #startAR, #startSim {
+    padding:14px 36px; border-radius:50px; border:none; cursor:pointer;
+    font-size:15px; font-weight:600; transition:all .25s; width:260px;
+  }
+  #startAR {
+    background:linear-gradient(135deg,#00e5ff,#7c4dff); color:#fff;
+    box-shadow:0 0 40px rgba(0,229,255,.3);
+  }
+  #startAR:hover { transform:scale(1.03); }
+  #startSim {
+    background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.2);
+    color:#ccc;
+  }
+  .devnote { font-size:11px; color:#555; }
+
+  /* Loading */
+  #loader {
+    position:fixed; inset:0; z-index:200; background:#0a0a14;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    display:none;
+  }
+  .spinner {
+    width:48px; height:48px; border:3px solid rgba(0,229,255,.2);
+    border-top-color:#00e5ff; border-radius:50%; animation:spin .8s linear infinite;
+  }
+  #loader p { color:#aaa; font-size:14px; }
+</style>
+</head>
+<body>
+
+<!-- AR launch overlay -->
+<div id="arOverlay">
+  <div class="big">🏠</div>
+  <h1>WeXR AR Walkthrough</h1>
+  <p>Scan your room and walk through the property in Augmented Reality — right from your phone.</p>
+  <div class="pills">
+    <span class="pill">📡 Plane Detection</span>
+    <span class="pill">🚶 Teleport Nav</span>
+    <span class="pill">🏗️ 3D Overlay</span>
+  </div>
+  <button id="startAR">Launch AR Experience</button>
+  <button id="startSim">Preview in 3D (Desktop)</button>
+  <span class="devnote">AR requires HTTPS + WebXR-capable device (Android Chrome / Meta Quest)</span>
+</div>
+
+<!-- Loading -->
+<div id="loader">
+  <div class="spinner"></div>
+  <p id="loaderMsg">Initializing AR session...</p>
+</div>
+
+<!-- Main canvas -->
+<canvas id="c"></canvas>
+
+<!-- HUD (shown during experience) -->
+<div id="hud" style="display:none">
+
+  <div id="topbar">
+    <div id="logo">WeXR</div>
+    <div id="statelabel">Scanning Room...</div>
+    <div id="closeBtn" onclick="exitExperience()">✕</div>
+  </div>
+
+  <!-- Scan ring (visible during scanning state) -->
+  <div id="scanring">
+    <svg viewBox="0 0 180 180" fill="none">
+      <circle cx="90" cy="90" r="80" stroke="rgba(0,229,255,0.2)" stroke-width="1.5"/>
+      <circle cx="90" cy="90" r="80" stroke="url(#sg)" stroke-width="2.5"
+              stroke-dasharray="100 400" stroke-linecap="round"/>
+      <circle cx="90" cy="90" r="60" stroke="rgba(124,77,255,0.15)" stroke-width="1"/>
+      <circle cx="90" cy="90" r="60" stroke="url(#sg2)" stroke-width="2"
+              stroke-dasharray="60 320" stroke-linecap="round"/>
+      <defs>
+        <linearGradient id="sg" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#00e5ff"/>
+          <stop offset="100%" stop-color="#7c4dff"/>
+        </linearGradient>
+        <linearGradient id="sg2" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#7c4dff"/>
+          <stop offset="100%" stop-color="#00e5ff"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  </div>
+
+  <div id="hint">📡 Point camera at the floor to detect surface</div>
+
+  <div id="roompopup">
+    <div class="rname" id="roomName">Living Room</div>
+    <div class="rsub">Tap dot to teleport here</div>
+  </div>
+</div>
+
+<!-- Place button (outside hud pointer-events:none) -->
+<button id="placeBtn" onclick="placeModel()">✦ Place Property Here</button>
+
+<!-- Bottom dock -->
+<div id="dock" style="display:none">
+  <div class="dockbtn active" onclick="setMode('ar')">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+    AR View
+  </div>
+  <div class="dockbtn" onclick="setMode('floor')">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/></svg>
+    Floor Plan
+  </div>
+  <div class="dockbtn" onclick="resetPlacement()">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    Reposition
+  </div>
+  <div class="dockbtn" onclick="shareLink()">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+    Share
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let STATE = 'idle'; // idle | scanning | placed | walkthrough
+let isAR = false;
+let simMode = false;
+let propertyRoot = null;
+let currentRoom = null;
+
+// ─── TELEPORT ROOMS ───────────────────────────────────────────────────────────
+const ROOMS = [
+  { name:'Living Room', pos:[  0,   0,    0 ], color:'#00e5ff', area:'32 sq.m' },
+  { name:'Bedroom 1',   pos:[  5,   0,    0 ], color:'#7c4dff', area:'18 sq.m' },
+  { name:'Bedroom 2',   pos:[  5,   0,  4.5 ], color:'#e040fb', area:'15 sq.m' },
+  { name:'Kitchen',     pos:[ -4,   0,    2 ], color:'#69f0ae', area:'12 sq.m' },
+  { name:'Bathroom',    pos:[ -4,   0,  5.5 ], color:'#ffb300', area:'8 sq.m'  },
+  { name:'Balcony',     pos:[  0,   0, -4.5 ], color:'#ff6e40', area:'10 sq.m' },
+];
+
+// ─── THREE.JS SETUP ───────────────────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 200);
+camera.position.set(0, 1.6, 4);
+
+// Lighting
+const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambient);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(5, 10, 5);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+scene.add(dirLight);
+
+const fillLight = new THREE.PointLight(0x00e5ff, 0.4, 20);
+fillLight.position.set(-5, 3, -5);
+scene.add(fillLight);
+
+// Orbit controls (sim mode)
+let controls;
+
+// ─── RETICLE (placement ring) ─────────────────────────────────────────────────
+const reticleGeom = new THREE.RingGeometry(0.1, 0.14, 32);
+reticleGeom.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+const reticleMat = new THREE.MeshBasicMaterial({ color:0x00e5ff, side:THREE.DoubleSide, transparent:true, opacity:0.85 });
+const reticle = new THREE.Mesh(reticleGeom, reticleMat);
+reticle.visible = false;
+scene.add(reticle);
+
+// Reticle pulse ring
+const pulseGeom = new THREE.RingGeometry(0.14, 0.18, 32);
+pulseGeom.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+const pulseMat = new THREE.MeshBasicMaterial({ color:0x7c4dff, side:THREE.DoubleSide, transparent:true, opacity:0.4 });
+const pulseRing = new THREE.Mesh(pulseGeom, pulseMat);
+scene.add(pulseRing);
+pulseRing.visible = false;
+
+// ─── PROPERTY MODEL (procedural) ─────────────────────────────────────────────
+function buildPropertyModel() {
+  const root = new THREE.Group();
+  const SCALE = 0.3; // AR scale (meters)
+
+  const matFloor   = new THREE.MeshStandardMaterial({ color:0xf5f0e8, roughness:.8 });
+  const matWall    = new THREE.MeshStandardMaterial({ color:0xffffff, roughness:.6 });
+  const matAccent  = new THREE.MeshStandardMaterial({ color:0x1a1a2e, roughness:.4 });
+  const matGlass   = new THREE.MeshStandardMaterial({ color:0x87ceeb, transparent:true, opacity:.3, roughness:.1 });
+
+  // Helper: add box
+  function box(w,h,d,mat,x,y,z) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+    m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true;
+    root.add(m); return m;
+  }
+
+  const S = SCALE;
+
+  // === FLOORS ===
+  box(10*S,.05*S, 9*S, matFloor,    0,      0,  1.5*S); // main floor
+  box( 5*S,.05*S, 4*S, matFloor, -5.5*S,   0,  3.5*S); // kitchen/bath
+  box( 3*S,.05*S, 3*S, matFloor,    0,      0, -4.5*S); // balcony (raised)
+
+  // === WALLS ===
+  // Outer walls
+  box(10*S, 2.8*S, .12*S, matWall,   0, 1.4*S, -2.9*S); // north
+  box(10*S, 2.8*S, .12*S, matWall,   0, 1.4*S,  6.1*S); // south
+  box(.12*S,2.8*S, 9*S,   matWall, 5.1*S,1.4*S, 1.5*S); // east
+  box(.12*S,2.8*S,13*S,   matWall,-8*S, 1.4*S,  2*S);   // west
+
+  // Inner dividers
+  box(.1*S,2.5*S,  4*S, matAccent,  2*S, 1.25*S, 3.5*S); // bedroom divider
+  box( 5*S,2.5*S, .1*S, matAccent, -2*S, 1.25*S, 1*S);   // kitchen divider
+
+  // === WINDOWS (glass planes) ===
+  box(3*S,.01*S,2*S, matGlass,  0, 1.6*S, -2.8*S); // north window
+  box(2*S,.01*S,1.5*S,matGlass, 5*S,1.5*S, 0);      // east window
+
+  // === CEILING (semi-transparent) ===
+  const ceilMat = new THREE.MeshStandardMaterial({color:0xffffff,transparent:true,opacity:.1,roughness:.9});
+  box(10*S,.06*S, 9*S, ceilMat, 0, 2.75*S, 1.5*S);
+
+  // === FURNITURE ===
+  // Sofa (living room)
+  const sofaMat = new THREE.MeshStandardMaterial({color:0x4a5568,roughness:.9});
+  box(3*S,.6*S,1*S,sofaMat,  0, .3*S, -.5*S);
+  box(3*S,.9*S,.3*S,sofaMat, 0, .45*S,-.95*S);
+
+  // Coffee table
+  const woodMat = new THREE.MeshStandardMaterial({color:0x8b6914,roughness:.6,metalness:.1});
+  box(1.5*S,.1*S,.8*S,woodMat, 0, .05*S, .6*S);
+
+  // Beds (bedroom 1 & 2)
+  const bedMat = new THREE.MeshStandardMaterial({color:0x7c4dff,roughness:.9});
+  box(2*S,.5*S,2.5*S, bedMat, 4.5*S,.25*S, .5*S);
+  box(2*S,.5*S,2*S,   bedMat, 4.5*S,.25*S, 4*S);
+
+  // Kitchen counter
+  const counterMat=new THREE.MeshStandardMaterial({color:0x2d3748,roughness:.3,metalness:.5});
+  box(2*S,.9*S,.8*S,counterMat,-5.5*S,.45*S,2*S);
+  box(2*S,.05*S,.9*S,new THREE.MeshStandardMaterial({color:0x718096,roughness:.2,metalness:.7}),-5.5*S,.9*S,2*S);
+
+  // Dining table
+  box(2*S,.05*S,1*S, woodMat, -3*S,.75*S, 4.5*S);
+  box(.1*S,.75*S,.1*S,woodMat,-4*S,.37*S,4*S);
+  box(.1*S,.75*S,.1*S,woodMat,-2*S,.37*S,4*S);
+  box(.1*S,.75*S,.1*S,woodMat,-4*S,.37*S,5*S);
+  box(.1*S,.75*S,.1*S,woodMat,-2*S,.37*S,5*S);
+
+  // ── GRID FLOOR (balcony) ──
+  const balconyMat = new THREE.MeshStandardMaterial({color:0xe2d9c8,roughness:.9});
+  box(3*S,.06*S,3*S, balconyMat, 0, .03*S,-4.5*S);
+
+  return root;
+}
+
+// ─── TELEPORT DOTS ────────────────────────────────────────────────────────────
+const teleportDots = [];
+const labelEls = [];
+
+function buildTeleportDots(parent) {
+  const S = 0.3;
+  ROOMS.forEach((room, i) => {
+    // Glow dot
+    const geom = new THREE.CylinderGeometry(.25*S, .25*S, .02*S, 32);
+    const mat  = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(room.color),
+      emissive: new THREE.Color(room.color),
+      emissiveIntensity: 0.8,
+      roughness:.2, metalness:.3
+    });
+    const dot = new THREE.Mesh(geom, mat);
+    dot.position.set(...room.pos.map((v,i)=>v*S));
+    dot.position.y = .02;
+    dot.userData = { room, index: i };
+    parent.add(dot);
+    teleportDots.push(dot);
+
+    // Outer ring
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(.28*S,.34*S,32),
+      new THREE.MeshBasicMaterial({color:new THREE.Color(room.color), transparent:true, opacity:.5, side:THREE.DoubleSide})
+    );
+    ring.rotation.x = -Math.PI/2;
+    ring.position.copy(dot.position);
+    ring.position.y = .01;
+    parent.add(ring);
+
+    // Floating arrow
+    const arrow = new THREE.Mesh(
+      new THREE.ConeGeometry(.06*S,.16*S,6),
+      new THREE.MeshBasicMaterial({color:new THREE.Color(room.color), transparent:true, opacity:.9})
+    );
+    arrow.position.copy(dot.position);
+    arrow.position.y = .6*S;
+    arrow.userData = { baseY: .6*S, dot };
+    parent.add(arrow);
+    arrow._isArrow = true;
+    arrow._i = i;
+
+    // HTML label
+    const el = document.createElement('div');
+    el.className = 'tel-label';
+    el.textContent = room.name;
+    el.style.borderColor = room.color + '80';
+    el.style.display = 'none';
+    document.body.appendChild(el);
+    labelEls.push({ el, dot, arrow });
+  });
+}
+
+// ─── RAYCASTER (tap to teleport) ──────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const pointer   = new THREE.Vector2();
+let   teleportTarget = null;
+let   teleportClock  = 0;
+let   teleportFrom   = new THREE.Vector3();
+let   teleportTo_v   = new THREE.Vector3();
+
+function onTap(event) {
+  if (STATE === 'scanning' && isAR) {
+    // AR: wait for hit test to confirm position, then show place button
+    document.getElementById('placeBtn').classList.add('visible');
+    return;
+  }
+  if (STATE === 'scanning' && simMode) {
+    placeModel();
+    return;
+  }
+  if (STATE !== 'placed' && STATE !== 'walkthrough') return;
+
+  // Check dot tap
+  const x = event.touches ? event.touches[0].clientX : event.clientX;
+  const y = event.touches ? event.touches[0].clientY : event.clientY;
+  pointer.x = (x/window.innerWidth)*2-1;
+  pointer.y = -(y/window.innerHeight)*2+1;
+
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(teleportDots, false);
+  if (hits.length > 0) {
+    const room = hits[0].object.userData.room;
+    triggerTeleport(room, hits[0].object);
+  }
+}
+
+canvas.addEventListener('click', onTap);
+canvas.addEventListener('touchstart', e=>{ e.preventDefault(); onTap(e); }, {passive:false});
+
+function triggerTeleport(room, dotMesh) {
+  STATE = 'walkthrough';
+  currentRoom = room;
+  teleportFrom.copy(camera.position);
+  const dotWorldPos = new THREE.Vector3();
+  dotMesh.getWorldPosition(dotWorldPos);
+  teleportTo_v.set(dotWorldPos.x, camera.position.y, dotWorldPos.z);
+  teleportTarget = dotMesh;
+  teleportClock = 0;
+
+  // Show popup
+  document.getElementById('roomName').textContent = room.name;
+  const popup = document.getElementById('roompopup');
+  popup.querySelector('.rsub').textContent = room.area + ' · Tap dot to move';
+  popup.classList.add('show');
+  setTimeout(()=>popup.classList.remove('show'), 2500);
+
+  document.getElementById('statelabel').textContent = room.name;
+}
+
+// ─── AR SETUP ─────────────────────────────────────────────────────────────────
+let hitTestSource = null;
+let hitTestSourceRequested = false;
+
+function startAR() {
+  showLoader('Requesting AR session...');
+  isAR = true;
+
+  if (!navigator.xr) {
+    alert('WebXR not available. Use Chrome on Android or Meta Quest Browser.');
+    hideLoader(); return;
+  }
+
+  navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+    if (!supported) {
+      alert('Immersive AR not supported on this device/browser.');
+      hideLoader(); return;
+    }
+
+    navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay', 'light-estimation'],
+      domOverlay: { root: document.body }
+    }).then(session => {
+      renderer.xr.setReferenceSpaceType('local');
+      renderer.xr.setSession(session);
+      scene.background = null;
+
+      hideLoader();
+      document.getElementById('arOverlay').style.display = 'none';
+      document.getElementById('hud').style.display = 'flex';
+      document.getElementById('dock').style.display = 'flex';
+      STATE = 'scanning';
+      reticle.visible = true;
+      pulseRing.visible = true;
+
+      session.addEventListener('end', ()=>{ exitExperience(); });
+      renderer.setAnimationLoop(renderLoop);
+    }).catch(e => {
+      console.error(e);
+      alert('Could not start AR: ' + e.message);
+      hideLoader();
+    });
+  });
+}
+
+// ─── SIM MODE ─────────────────────────────────────────────────────────────────
+function startSim() {
+  isAR = false; simMode = true;
+  scene.background = new THREE.Color(0x0a0a14);
+
+  // Grid floor
+  const grid = new THREE.GridHelper(20, 40, 0x1a1a2e, 0x1a1a2e);
+  scene.add(grid);
+
+  controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = .05;
+  controls.minDistance = 1;
+  controls.maxDistance = 20;
+  controls.maxPolarAngle = Math.PI/2;
+
+  document.getElementById('arOverlay').style.display = 'none';
+  document.getElementById('hud').style.display = 'flex';
+  document.getElementById('dock').style.display = 'flex';
+  document.getElementById('scanring').style.display = 'none';
+
+  // Auto-place model in sim mode
+  setTimeout(()=>{ placeModel(new THREE.Vector3(0,0,0)); }, 300);
+
+  STATE = 'scanning';
+  renderer.setAnimationLoop(renderLoop);
+  updateHint('👆 Click a glowing dot to teleport to that room');
+}
+
+// ─── PLACE MODEL ──────────────────────────────────────────────────────────────
+window.placeModel = function(pos) {
+  if (propertyRoot) { scene.remove(propertyRoot); propertyRoot = null; teleportDots.length=0; }
+
+  const placement = pos || (reticle.visible ? reticle.position.clone() : new THREE.Vector3(0,0,0));
+
+  showLoader('Loading property model...');
+  setTimeout(()=>{
+    propertyRoot = buildPropertyModel();
+    propertyRoot.position.copy(placement);
+    scene.add(propertyRoot);
+    buildTeleportDots(propertyRoot);
+
+    hideLoader();
+    STATE = 'placed';
+    document.getElementById('scanring').style.display = 'none';
+    document.getElementById('placeBtn').classList.remove('visible');
+    reticle.visible = false; pulseRing.visible = false;
+    document.getElementById('statelabel').textContent = 'Property Placed';
+    updateHint('✨ Tap a glowing dot to enter that room');
+
+    // Camera: move closer to model
+    if (simMode) {
+      camera.position.set(0, 2.5, 5);
+      controls.target.set(0, .5, 0);
+    }
+  }, 600);
+};
+
+// ─── RENDER LOOP ──────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+
+function renderLoop(timestamp, frame) {
+  const dt = clock.getDelta();
+
+  // AR hit test
+  if (isAR && frame) {
+    const refSpace = renderer.xr.getReferenceSpace();
+    const session  = renderer.xr.getSession();
+
+    if (!hitTestSourceRequested) {
+      session.requestReferenceSpace('viewer').then(vs => {
+        session.requestHitTestSource({ space: vs }).then(src => { hitTestSource = src; });
+      });
+      hitTestSourceRequested = true;
+    }
+
+    if (hitTestSource) {
+      const hits = frame.getHitTestResults(hitTestSource);
+      if (hits.length > 0 && STATE === 'scanning') {
+        const pose = hits[0].getPose(refSpace);
+        reticle.visible = true; pulseRing.visible = true;
+        reticle.matrix.fromArray(pose.transform.matrix);
+        reticle.matrix.decompose(reticle.position, reticle.quaternion, reticle.scale);
+        pulseRing.position.copy(reticle.position);
+        document.getElementById('hint').textContent = '✅ Surface found — tap to place property';
+        document.getElementById('placeBtn').classList.add('visible');
+      }
+    }
+  }
+
+  // Sim controls
+  if (simMode && controls) controls.update();
+
+  // Teleport animation (smooth lerp)
+  if (teleportTarget && teleportClock < 1) {
+    teleportClock = Math.min(teleportClock + dt * 2.5, 1);
+    const t = easeInOut(teleportClock);
+    camera.position.lerpVectors(teleportFrom, teleportTo_v, t);
+    if (teleportClock >= 1) teleportTarget = null;
+  }
+
+  // Animate teleport dots (float + pulse)
+  const T = performance.now() * .001;
+  teleportDots.forEach((dot, i) => {
+    dot.scale.setScalar(.9 + .1 * Math.sin(T*2 + i*1.2));
+    dot.material.emissiveIntensity = .6 + .4*Math.sin(T*3+i);
+  });
+
+  // Animate arrows
+  scene.traverse(obj => {
+    if (obj._isArrow) {
+      obj.position.y = obj.userData.baseY + .06*Math.sin(T*2.5 + obj._i*1.5);
+    }
+  });
+
+  // Pulse ring scale
+  pulseRing.scale.setScalar(1 + .1*Math.sin(T*4));
+
+  // Update 2D labels (project 3D → screen)
+  if (propertyRoot && (STATE === 'placed' || STATE === 'walkthrough')) {
+    labelEls.forEach(({ el, dot }) => {
+      const world = new THREE.Vector3();
+      dot.getWorldPosition(world);
+      const proj = world.project(camera);
+      const sx = ( proj.x * .5 + .5) * window.innerWidth;
+      const sy = (-proj.y * .5 + .5) * window.innerHeight;
+
+      if (proj.z < 1) {
+        el.style.display = 'block';
+        el.style.left = sx + 'px';
+        el.style.top  = (sy - 30) + 'px';
+      } else {
+        el.style.display = 'none';
+      }
+    });
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function easeInOut(t) { return t<.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+function updateHint(msg) {
+  const el = document.getElementById('hint');
+  el.style.opacity = '0';
+  setTimeout(()=>{ el.textContent = msg; el.style.opacity = '1'; }, 400);
+}
+
+function showLoader(msg) {
+  document.getElementById('loaderMsg').textContent = msg;
+  document.getElementById('loader').style.display = 'flex';
+}
+function hideLoader() {
+  document.getElementById('loader').style.display = 'none';
+}
+
+window.exitExperience = function() {
+  labelEls.forEach(({el})=>el.remove());
+  renderer.setAnimationLoop(null);
+  renderer.xr.getSession()?.end().catch(()=>{});
+  document.getElementById('arOverlay').style.display = 'flex';
+  document.getElementById('hud').style.display = 'none';
+  document.getElementById('dock').style.display = 'none';
+  document.getElementById('placeBtn').classList.remove('visible');
+  STATE = 'idle'; simMode = false; isAR = false;
+  hitTestSource = null; hitTestSourceRequested = false;
+  if (propertyRoot) { scene.remove(propertyRoot); propertyRoot = null; }
+  teleportDots.length = 0;
+};
+
+window.resetPlacement = function() {
+  if (propertyRoot) { scene.remove(propertyRoot); propertyRoot = null; }
+  teleportDots.length = 0;
+  labelEls.forEach(({el})=>{ el.style.display='none'; });
+  STATE = 'scanning';
+  if (!simMode) { reticle.visible=true; pulseRing.visible=true; }
+  document.getElementById('scanring').style.display = 'block';
+  document.getElementById('statelabel').textContent = 'Scanning Room...';
+  updateHint('📡 Point camera at the floor to detect surface');
+};
+
+window.setMode = function(m) {
+  document.querySelectorAll('.dockbtn').forEach(b=>b.classList.remove('active'));
+  event.target.closest('.dockbtn').classList.add('active');
+};
+
+window.shareLink = function() {
+  const url = window.location.href;
+  if (navigator.share) {
+    navigator.share({ title:'WeXR Property Tour', url });
+  } else {
+    navigator.clipboard.writeText(url).then(()=>alert('Link copied!'));
+  }
+};
+
+// ─── RESIZE ───────────────────────────────────────────────────────────────────
+window.addEventListener('resize', ()=>{
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─── BUTTON HANDLERS ──────────────────────────────────────────────────────────
+document.getElementById('startAR').addEventListener('click', startAR);
+document.getElementById('startSim').addEventListener('click', startSim);
+</script>
+</body>
+</html>
